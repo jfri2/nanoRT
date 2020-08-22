@@ -8,16 +8,19 @@
 #include "logger.h"
 #include "ustr.h"
 #include "usart.h"
+#include <freertos.h>
+#include <task.h>
 #include <stdarg.h>
 
 /* Global Variable Definitions -----------------------------------------------*/
-uint8_t log_buf[LOG_BUF_SIZE] = { 0 };
-uint32_t log_readIndex = 0;
-uint32_t log_writeIndex = 0;
-int8_t log_status = LOG_EMPTY;
-uint8_t log_writeLock = LOG_WRITE_FREE;
 
 /* Private Variables ---------------------------------------------------------*/
+static uint8_t log_buf[LOG_BUF_SIZE] = { 0 };
+static uint32_t log_readIndex = 0;
+static uint32_t log_writeIndex = 0;
+static int8_t log_status = LOG_EMPTY;
+static uint8_t log_writeLock = LOG_WRITE_FREE;
+static uint8_t log_msg_dma[LOG_MSG_MAX_SIZE] = { 0 };
 
 /* Private Function Prototypes ---------------------------------------------*/
 int8_t log_write(char* str, uint32_t len);
@@ -79,7 +82,7 @@ void log_event(uint8_t level, const char* file, unsigned int line, const char* f
         {
             // Do nothing
         }
-        log_write(tag, strlen(tag));
+        log_write(tag, strlen(tag) + 1);
     }
 }
 
@@ -95,15 +98,29 @@ int8_t log_bufReadByte(uint8_t* ret_byte)
         log_readIndex = (log_readIndex + 1) % LOG_BUF_SIZE;
     }
 
+    // Check after the last read if the log is empty
+    if (log_writeIndex == log_readIndex)
+    {
+        log_status = LOG_EMPTY;
+    }
+
     return (log_status);
 }
 
-// Example log_read implementation sending logs to a UART over DMA
+// Example log_read implementation sending logs to a UART
 void log_read(void)
 {
-    uint8_t tmp[LOG_MSG_MAX_SIZE] = { 0 };
-    uint8_t log_errorMsg[] = "\n\r\ERROR: Log buffer overflow!\n\r";
-    uint32_t i = 0;
+    static uint8_t log_errorMsg[] = "\n\r\[ERROR] Log buffer overflow!\n\r";
+    uint32_t msg_index = 0;
+    uint32_t timeMs = 0;
+    uint32_t timeoutMs = 10000;
+
+    // Wait for previous transfer to complete if it hasn't already
+    while ((Usart_DmaTxComplete != 1) && (timeMs < timeoutMs))
+    {
+        HAL_Delay(1);
+        timeMs++;
+    }
 
     // Read out string from log buffer, stopping when reaching a null character
     if (log_status != LOG_EMPTY)
@@ -113,30 +130,20 @@ void log_read(void)
         {
             HAL_UART_Transmit(&huart1, log_errorMsg, ustrlen(log_errorMsg), HAL_MAX_DELAY);
         }
-
-        else            // Otherwise continue as normal
+        else
         {
-            do          // Copy last string
+            // Copy last string
+            do
             {
-                log_bufReadByte(&tmp[i]);
-                i++;
+                log_bufReadByte(&log_msg_dma[msg_index]);
+                msg_index++;
             }
-            while (tmp[i] != '\0');
-        }
-
-        // Wait for previous transfer to complete if it hasn't already
-        if (Usart_DmaTxComplete != 1)
-        {
-            log_warn("Waiting on DMA Tx Complete");
-        }
-        while (Usart_DmaTxComplete != 1)
-        {
-            // Do nothing
+            while ((log_msg_dma[msg_index - 1] != '\0') && (msg_index < (LOG_MSG_MAX_SIZE - 1)));
         }
 
         // Reset transfer flag and send new string via DMA to UART
         Usart_DmaTxComplete = 0;
-        HAL_UART_Transmit_DMA(&huart1, tmp, ustrlen(tmp));
+        HAL_UART_Transmit_DMA(&huart1, log_msg_dma, (msg_index - 1));
     }
 }
 
@@ -145,6 +152,12 @@ int8_t log_write(char* str, uint32_t len)
 {
     uint32_t i = 0;
 
+    if (len >= LOG_MSG_MAX_SIZE)
+    {
+        log_warn("Something tried to write a log message >= %d!!!", LOG_MSG_MAX_SIZE);
+    }
+
+    // TODO: Wrap this in a mutex
     // Write data to buffer, terminating if log is full
     while ((i < len) && (log_status != LOG_FULL))
     {

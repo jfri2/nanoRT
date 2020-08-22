@@ -35,11 +35,6 @@
 #define log_debug(...) log_event(LOG_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
 
 /* Global Variables ----------------------------------------------------------*/
-extern uint8_t log_buf[LOG_BUF_SIZE];
-extern uint32_t log_readIndex;
-extern uint32_t log_writeIndex;
-extern int8_t  log_status;
-extern uint8_t log_writeLock;
 
 /* Public Function Prototypes ------------------------------------------------*/
 void log_event(uint8_t level, const char *file, unsigned int line, const char *format, ...);

@@ -73,6 +73,9 @@
 #define CC110_TEST1_ADDR        0x2D    // Test 1
 #define CC110_TEST0_ADDR        0x2E    // Test 0
 
+// PA Table
+#define CC110_PATABLE_ADDR      0x3E    // PA Table
+
 // Status Register Addresses
 // Note: Status Registers can only be accessed using BURST_READs
 #define CC110_PARTNUM_ADDR      0x30    // CC110x Part Number
@@ -92,6 +95,30 @@
 #define CC110_RXFIFO_ADDR       0x3F
 
 /* Global TypeDefs -----------------------------------------------------------*/
+// Status Byte
+typedef enum
+{
+    CC110_STATUS_BYTE_STATE_IDLE = 0x00,
+    CC110_STATUS_BYTE_STATE_RX,
+    CC110_STATUS_BYTE_STATE_TX,
+    CC110_STATUS_BYTE_STATE_FSTXON,
+    CC110_STATUS_BYTE_STATE_CALIBRATE,
+    CC110_STATUS_BYTE_STATE_SETTLING,
+    CC110_STATUS_BYTE_STATE_RXFIFO_OVERFLOW,
+    CC110_STATUS_BYTE_STATE_TXFIFO_UNDERFLOW
+} CC110_STATUS_BYTE_STATE_t;
+
+typedef union
+{
+    uint8_t data;
+    struct
+    {
+        uint8_t FIFO_BYTES_AVAILABLE :4;
+        CC110_STATUS_BYTE_STATE_t STATE :3;
+        uint8_t CHIP_RDYn :1;
+    };
+} CC110_STATUS_BYTE_t;
+
 // Status Registers - Note: struct goes LSB = Top; MSB = Bottom
 // TODO: Convert these to enum types and update below registers, also add comments
 typedef union
@@ -140,12 +167,39 @@ typedef union
     };
 } CC110_RSSI_REG_t;
 
+typedef enum
+{
+    CC110_MARCSTATE_SLEEP = 0x00,
+    CC110_MARCSTATE_IDLE,
+    CC110_MARCSTATE_XOFF,
+    CC110_MARCSTATE_VCOON_MC,
+    CC110_MARCSTATE_REGON_MC,
+    CC110_MARCSTATE_MANCAL,
+    CC110_MARCSTATE_VCOON,
+    CC110_MARCSTATE_REGON,
+    CC110_MARCSTATE_STARTCAL,
+    CC110_MARCSTATE_BWBOOST,
+    CC110_MARCSTATE_FS_LOCK,
+    CC110_MARCSTATE_IFADCON,
+    CC110_MARCSTATE_ENDCAL,
+    CC110_MARCSTATE_RX,
+    CC110_MARCSTATE_RX_END,
+    CC110_MARCSTATE_RX_RST,
+    CC110_MARCSTATE_TXRX_SWITCH,
+    CC110_MARCSTATE_RXFIFO_OVERFLOW,
+    CC110_MARCSTATE_FSTXON,
+    CC110_MARCSTATE_TX,
+    CC110_MARCSTATE_TX_END,
+    CC110_MARCSTATE_RXTX_SWITCH,
+    CC110_MARCSTATE_TXFIFO_UNDERFLOW
+} CC110_MARCSTATE_t;
+
 typedef union
 {
     uint8_t data;
     struct
     {   
-        uint8_t MARC_STATE :5;
+        CC110_MARCSTATE_t MARC_STATE :5;
         uint8_t unused :3;
     };
 } CC110_MARCSTATE_REG_t;
@@ -689,5 +743,19 @@ typedef union
         uint8_t TEST0 :8;
     };
 } CC110_TEST0_REG_t;
+
+// PA Table
+typedef enum
+{
+    POWER_m30DBM = 0x03,
+    POWER_m20DBM = 0x0E,
+    POWER_m15DBM = 0x1E,
+    POWER_m10DBM = 0x27,
+    POWER_0DBM = 0x8E,
+    POWER_5DBM = 0xCD,
+    POWER_7DBM = 0xC7,
+    POWER_10DBM = 0xC0
+} CC110_PATABLE_t;
+
 
 #endif /* CC110_TYPES_H_ */

@@ -50,7 +50,7 @@
 /* USER CODE BEGIN Variables */
 osThreadId_t consoleTaskHandle;
 const osThreadAttr_t consoleTask_attributes = { .name = "consoleTask", .priority =
-        (osPriority_t) osPriorityHigh + 1, .stack_size = 1024 * 4 };
+        (osPriority_t) osPriorityLow + 1, .stack_size = 1024 * 4 };
 
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = { .name = "displayTask", .priority =
@@ -112,7 +112,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
     consoleTaskHandle = osThreadNew(StartConsoleTask, NULL, &consoleTask_attributes);
-    displayTaskHandle = osThreadNew(StartDisplayTask, NULL, &displayTask_attributes);
+    // TODO: Re-eanble this and figure out how to do I2C DMA
+    //displayTaskHandle = osThreadNew(StartDisplayTask, NULL, &displayTask_attributes);
     radioTaskHandle = osThreadNew(StartRadioTask, NULL, &radioTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
@@ -133,7 +134,7 @@ void StartHeartbeatTask(void *argument)
     while (1)
     {
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-        osDelay(100);
+        osDelay(200);
     }
   /* USER CODE END StartHeartbeatTask */
 }
@@ -158,7 +159,7 @@ void StartDisplayTask(void* argument)
     while (1)
     {
         ssd1315_demo();
-        osDelay(100); // Do nothing
+        osDelay(100);
     }
 }
 
@@ -167,10 +168,19 @@ void StartRadioTask(void* argument)
     // Init display
     log_info("Starting radio task");
     cc110_init();
-    cc110_test();
+    osDelay(1000);        // Allow other tasks to startup
     while (1)
     {
-        osDelay(100); // Do nothing
+//#define TRANSMITTER
+#define RECEIVER
+#ifdef TRANSMITTER
+        cc110_test();   // Perform test
+        osDelay(1000);
+#endif
+#ifdef RECEIVER
+        cc110_printRssi();
+        osDelay(100);  // Do nothing
+#endif
     }
 }
 

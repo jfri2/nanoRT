@@ -63,8 +63,21 @@ void Error_Handler(void);
 #define KEY0_GPIO_Port GPIOE
 #define LED_Pin GPIO_PIN_6
 #define LED_GPIO_Port GPIOA
+#define LED1_Pin GPIO_PIN_7
+#define LED1_GPIO_Port GPIOA
+#define EVENT_LED_Pin GPIO_PIN_11
+#define EVENT_LED_GPIO_Port GPIOB
+#define SPI2_NSS_Pin GPIO_PIN_12
+#define SPI2_NSS_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
-
+#define SPI2_NSS_Pin    GPIO_PIN_12
+#define SPI2_NSS_Port   GPIOB
+#define SPI2_SCK_Pin    GPIO_PIN_10
+#define SPI2_SCK_Port   GPIOB
+#define SPI2_MOSI_Pin   GPIO_PIN_3
+#define SPI2_MOSI_Port  GPIOC
+#define SPI2_MISO_Pin   GPIO_PIN_2
+#define SPI2_MISO_Port  GPIOC
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

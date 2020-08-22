@@ -94,14 +94,16 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_TIM6_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_SPI2_Init();
+  MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
+  // Deinit TIM10 - this should only be init'd just before we need to do CC110 tx/rx
+  HAL_TIM_Base_MspDeInit(&htim10);
   setbuf(stdout, NULL);
   log_info("GPIO Initialized");
-  log_info("TIM6 Initialized");
+  log_info("TIM10 Initialized");
   log_info("I2C1 Initialized");
   log_info("USART1 Initialized");
   log_info("Starting OS...");

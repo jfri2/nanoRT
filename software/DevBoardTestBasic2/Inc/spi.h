@@ -33,13 +33,15 @@
 extern SPI_HandleTypeDef hspi2;
 
 /* USER CODE BEGIN Private defines */
-
+volatile uint8_t Spi_DmaTxRxComplete;
+volatile uint8_t Spi_Busy;
 /* USER CODE END Private defines */
 
 void MX_SPI2_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+void Spi_start(void);
+void Spi_stop(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

@@ -78,8 +78,8 @@ static int8_t cc110_connectedStatus = CC110_OK;
 static uint8_t cc110_txRxStatus = CC110_TXRX_BUSY;
 
 // Buffers for OTA data in/out of CC110
-static uint8_t cc110_dmaBufTx[CC110_FIFO_SIZE + 1] = {0};
-static uint8_t cc110_dmaBufRx[CC110_FIFO_SIZE + 1] = {0};
+static uint8_t cc110_dmaBufTx[CC110_FIFO_SIZE + 1] = { 0 };
+static uint8_t cc110_dmaBufRx[CC110_FIFO_SIZE + 1] = { 0 };
 
 static uint8_t cc110_txBuf[CC110_TXRX_BUF_SIZE] = { 0 };
 static uint32_t cc110_txBufReadIndex = 0;
@@ -143,28 +143,34 @@ int8_t cc110_init(void)
         // Tx Power: -15 dBm
         // Packet
 
-        #define SMARTRF_SETTING_IOCFG0          0x06
-        #define SMARTRF_SETTING_FIFOTHR         0x47
-        #define SMARTRF_SETTING_PKTCTRL0        0x05
-        #define SMARTRF_SETTING_FSCTRL1         0x06
-        #define SMARTRF_SETTING_FREQ2           0x21
-        #define SMARTRF_SETTING_FREQ1           0xE3
-        #define SMARTRF_SETTING_FREQ0           0x8E
-        #define SMARTRF_SETTING_MDMCFG4         0xF5
-        #define SMARTRF_SETTING_MDMCFG3         0x75
-        #define SMARTRF_SETTING_MDMCFG2         0x13
-        #define SMARTRF_SETTING_MDMCFG0         0xE5
-        #define SMARTRF_SETTING_DEVIATN         0x14
-        #define SMARTRF_SETTING_MCSM0           0x18
-        #define SMARTRF_SETTING_FOCCFG          0x16
-        #define SMARTRF_SETTING_RESERVED_0X20   0xFB
-        #define SMARTRF_SETTING_FSCAL3          0xE9
-        #define SMARTRF_SETTING_FSCAL2          0x2A
-        #define SMARTRF_SETTING_FSCAL1          0x00
-        #define SMARTRF_SETTING_FSCAL0          0x1F
-        #define SMARTRF_SETTING_TEST2           0x81
-        #define SMARTRF_SETTING_TEST1           0x35
-        #define SMARTRF_SETTING_TEST0           0x09
+        // Default GDO2 and GDO1 Config
+#define SMARTRF_SETTING_IOCFG0          0x06    // 0x06 for GDO0 config
+        // 0xD391 Sync word
+        // Packet len of 255 (changed later)
+        // CRC autoflush disabled; append status enabled,
+//#define SMARTRF_SETTING_FIFOTHR         0x47    // ADC retention enabled; Close in RX 0; FIFO thr 32/33
+#define SMARTRF_SETTING_FIFOTHR         0xb00110111     // ADC retention disabled; Close in RX 18 dB; FIFO thr 32/33
+#define SMARTRF_SETTING_PKTCTRL0        0x05    //
+#define SMARTRF_SETTING_FSCTRL1         0x06
+#define SMARTRF_SETTING_FREQ2           0x21
+#define SMARTRF_SETTING_FREQ1           0xE3
+#define SMARTRF_SETTING_FREQ0           0x8E
+#define SMARTRF_SETTING_MDMCFG4         0xF5
+#define SMARTRF_SETTING_MDMCFG3         0x75
+//#define SMARTRF_SETTING_MDMCFG2         0x13    // GFSK, 30/32 + carrier sense above thresh
+#define SMARTRF_SETTING_MDMCFG2         0x11    // GFSK, 15/16 Sync words detected
+#define SMARTRF_SETTING_MDMCFG0         0xE5
+#define SMARTRF_SETTING_DEVIATN         0x14
+#define SMARTRF_SETTING_MCSM0           0x18
+#define SMARTRF_SETTING_FOCCFG          0x16
+#define SMARTRF_SETTING_RESERVED_0X20   0xFB
+#define SMARTRF_SETTING_FSCAL3          0xE9
+#define SMARTRF_SETTING_FSCAL2          0x2A
+#define SMARTRF_SETTING_FSCAL1          0x00
+#define SMARTRF_SETTING_FSCAL0          0x1F
+#define SMARTRF_SETTING_TEST2           0x81
+#define SMARTRF_SETTING_TEST1           0x35
+#define SMARTRF_SETTING_TEST0           0x09
 
         cc110_writeRegister(CC110_IOCFG0_ADDR, SMARTRF_SETTING_IOCFG0);
         cc110_writeRegister(CC110_FIFOTHR_ADDR, SMARTRF_SETTING_FIFOTHR);
@@ -190,6 +196,12 @@ int8_t cc110_init(void)
         cc110_writeRegister(CC110_TEST0_ADDR, SMARTRF_SETTING_TEST0);
         cc110_writeRegister(CC110_PATABLE_ADDR, POWER_m30DBM);
 
+        cc110_writeRegister(CC110_PKTLEN_ADDR, 0x02);           // Packet length of 2 bytes
+        cc110_writeRegister(CC110_PKTCTRL1_ADDR, 0b00000000);   // No addr checking, append status disable
+        cc110_writeRegister(CC110_PKTCTRL0_ADDR, 0b00000000); // Set to fixed packet length mode, CRC disabled
+        //cc110_writeRegister(CC110_MCSM1_ADDR, 0b00001110);      // Set always CCA, stay in Rx after rx packet, and stay in tx after sending packet
+        cc110_writeRegister(CC110_MCSM1_ADDR, 0b00001100); // Set always CCA, stay in Rx after rx packet, and goto IDLE after sending packet
+
         cc110_dumpRegisters();
         cc110_txRxStatus = CC110_TXRX_BUSY;
 
@@ -206,10 +218,10 @@ int8_t cc110_init(void)
     return (retval);
 }
 
-void cc110_test(void)
+void cc110_txTest(void)
 {
     static uint32_t index;                // Keeps track of number of calls to this function
-    uint8_t* msg = "Hello World!";
+    uint8_t msg[] = "Hello World n";
 #define RX_MSG_BYTES         10
     static uint8_t rx_msg[RX_MSG_BYTES];
 
@@ -222,22 +234,14 @@ void cc110_test(void)
         cc110_getStatus();
 
         // Tell console we're doing something
+        msg[13] = ('%c', index);
         log_info("%d - Writing %s to tx cbuf and tx'ing", index, msg);
 
         // Write a bit of dummy data to txBuf
-        for (uint8_t i=0; i<5; i++)
-        {
-            cc110_writeTxBuf(msg, ustrlen(msg));
-        }
+        cc110_writeTxBuf(msg, ustrlen(msg));
 
         // Set state to tx
         cc110_txRxStatus = CC110_TXRX_TX;
-
-        // Enable transmitter
-        cc110_strobeCmd(CC110_STX_ADDR);
-
-        // Keep transmitter on for 1 ms
-        HAL_Delay(1);
 
         // Check current state
         if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_TX)
@@ -250,32 +254,32 @@ void cc110_test(void)
         }
 
         /*
-        // Switch to Rx mode
-        log_info("Switching to Rx Mode...");
+         // Switch to Rx mode
+         log_info("Switching to Rx Mode...");
 
-        // TODO: Make a function call around tx/rx that sets this state
-        cc110_txRxStatus = CC110_TXRX_RX;
-        cc110_strobeCmd(CC110_SRX_ADDR);
+         // TODO: Make a function call around tx/rx that sets this state
+         cc110_txRxStatus = CC110_TXRX_RX;
+         cc110_strobeCmd(CC110_SRX_ADDR);
 
-        HAL_Delay(1);
+         HAL_Delay(1);
 
-        // Check current state
-        if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_RX)
-        {
-            log_info("CC110 in RX state, RSSI: %d dBm", cc110_rssiDbm);
-        }
-        else
-        {
-            log_info("CC110 in %x state", CC110_STATUS_DATA.STATE);
-        }
+         // Check current state
+         if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_RX)
+         {
+         log_info("CC110 in RX state, RSSI: %d dBm", cc110_rssiDbm);
+         }
+         else
+         {
+         log_info("CC110 in %x state", CC110_STATUS_DATA.STATE);
+         }
 
-        // Print out last RX_MSG_BYTES from rx buffer
-        for (uint8_t i = 0; i<RX_MSG_BYTES; i++)
-        {
-            cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
-            log_info("RX'd: %d", rx_msg[i]);
-        }
-        */
+         // Print out last RX_MSG_BYTES from rx buffer
+         for (uint8_t i = 0; i<RX_MSG_BYTES; i++)
+         {
+         cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
+         log_info("RX'd: %d", rx_msg[i]);
+         }
+         */
 
         index++;
 
@@ -284,23 +288,25 @@ void cc110_test(void)
     }
 }
 
-void cc110_printRssi(void)
+void cc110_rxTest(void)
 {
 #define RX_MSG_BYTES         10
     static uint8_t rx_msg[RX_MSG_BYTES];
 
     // Set Rx State
     cc110_txRxStatus = CC110_TXRX_RX;
-    cc110_strobeCmd(CC110_SRX_ADDR);
 
     // Grab latest status
     cc110_getStatus();
 
-    for (uint8_t i = 0; i<1; i++)
-    {
-        cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
-        log_info("RSSI: %d dBm, MSG Char: %x", cc110_rssiDbm, rx_msg[i]);
-    }
+    log_info("RSSI: %d dBm", cc110_rssiDbm);
+
+    cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
+    log_info("MSG: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x ", rx_msg[0], rx_msg[1],
+             rx_msg[2], rx_msg[3], rx_msg[4], rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8],
+             rx_msg[9]);
+    log_info("MSG: %c%c%c%c%c%c%c%c%c%c", rx_msg[0], rx_msg[1], rx_msg[2], rx_msg[3], rx_msg[4],
+             rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8], rx_msg[9]);
 }
 
 // Handles tx and rx FIFO operations.
@@ -328,99 +334,134 @@ void cc110_txrx(void)
     else
     {
         switch (cc110_txRxStatus)
-            {
-                case CC110_TXRX_BUSY:
-                    // Do nothing if we're not ready to read/write from FIFOs
-                    rx_data_ready = 0;   // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
-                    break;
+        {
+            case CC110_TXRX_BUSY:
+                // Do nothing if we're not ready to read/write from FIFOs
+                rx_data_ready = 0; // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
+                break;
 
-                case CC110_TXRX_TX:     // Transmit mode
-                    rx_data_ready = 0;   // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
-                    // Get number of bytes available in CC110 TX FIFO
-                    CC110_TXBYTES_DATA.data = cc110_burstReadRegister(CC110_TXBYTES_ADDR);
-                    tx_bytes_free = CC110_FIFO_SIZE - CC110_TXBYTES_DATA.NUM_TXBYTES;
+            case CC110_TXRX_TX:     // Transmit mode
+                rx_data_ready = 0; // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
+                // Get number of bytes available in CC110 TX FIFO
+                CC110_TXBYTES_DATA.data = cc110_burstReadRegister(CC110_TXBYTES_ADDR);
+                tx_bytes_free = CC110_FIFO_SIZE - CC110_TXBYTES_DATA.NUM_TXBYTES;
 
-                    // Copy TX bytes for the next transfer from the tx cbuf to the DMA buffer
-                    // Check if Tx buf is empty
-                    if (cc110_txBufStatus != CC110_BUF_EMPTY)
+                // Ack any underflow if there is one
+                if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_TXFIFO_UNDERFLOW)
+                {
+                    cc110_strobeCmd(CC110_SFTX_ADDR);
+                }
+
+                // Copy TX bytes for the next transfer from the tx cbuf to the DMA buffer
+                // Check if Tx buf is empty
+                if (cc110_txBufStatus != CC110_BUF_EMPTY)
+                {
+                    // Copy command word into first byte of DMA buffer
+                    cc110_dmaBufTx[0] = CC110_BURST_WRITE | CC110_TXFIFO_ADDR;
+
+                    // Reset DMA index
+                    dma_index = 1;
+
+                    // Copy as much data as possible to DMA buffer (bytes free in tx buffer or until tx buf is empty)
+                    while ((cc110_txBufReadIndex != cc110_txBufWriteIndex)
+                            && (dma_index < tx_bytes_free))
                     {
-                        // Copy command word into first byte of DMA buffer
-                        cc110_dmaBufTx[0] = CC110_BURST_WRITE | CC110_TXFIFO_ADDR;
+                        cc110_dmaBufTx[dma_index] = cc110_txBuf[cc110_txBufReadIndex];
+                        cc110_txBufReadIndex = (cc110_txBufReadIndex + 1) % CC110_TXRX_BUF_SIZE;
+                        dma_index++;
+                    }
 
-                        // Reset DMA index
-                        dma_index = 1;
+                    // Update buffer status if we emptied the whole buffer
+                    if (cc110_txBufReadIndex == cc110_txBufWriteIndex)
+                    {
+                        cc110_txBufStatus = CC110_BUF_EMPTY;
+                    }
 
-                        // Copy as much data as possible to DMA buffer (bytes free in tx buffer or until tx buf is empty)
-                        while ((cc110_txBufReadIndex != cc110_txBufWriteIndex) && (dma_index < tx_bytes_free))
+                    // Start SPI DMA
+                    // dma_index will indicate total number of bytes to transfer (including cmd byte)
+                    // TODO: do this with DMA
+                    cc110_burstWrite(CC110_TXFIFO_ADDR, &cc110_dmaBufTx[1], dma_index - 1);
+                    //cc110_spi_xfer(cc110_dmaBufTx, cc110_dmaBufRx, dma_index);
+                    //HAL_SPI_TransmitReceive_DMA(&hspi2, cc110_dmaBufTx, cc110_dmaBufRx, dma_index);
+
+                    // Set CC110 to Tx state now that there is data in the FIFO
+                    cc110_strobeCmd(CC110_STX_ADDR);
+                }
+                else
+                {
+                    // Do nothing, buffer is empty and we can't write data to the CC110
+                    //log_debug("No data to send, Tx buf is empty...");
+                }
+                break;
+
+            case CC110_TXRX_RX:     // Receive mode
+
+                //DEBUG:
+                cc110_getStatus();
+
+                // If there's an overflow ack it and tell the radio data is not ready
+                if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_RXFIFO_OVERFLOW)
+                {
+                    cc110_strobeCmd(CC110_SFRX_ADDR);
+                    rx_data_ready = 0;
+                }
+
+                // Get number of bytes available in CC110 RX FIFO
+                rx_bytes_avaiable_previous = rx_bytes_avaiable;
+                CC110_RXBYTES_DATA.data = cc110_burstReadRegister(CC110_RXBYTES_ADDR);
+                rx_bytes_avaiable = CC110_RXBYTES_DATA.NUM_RXBYTES;
+
+                if (rx_data_ready == 1)
+                {
+                    // Copy command word into first byte of DMA buffer
+                    cc110_dmaBufTx[0] = CC110_BURST_READ | CC110_RXFIFO_ADDR;
+
+                    // Reset DMA index
+                    dma_index = 1;
+
+                    // Copy RX bytes from last transfer from the DMA buffer to the rx cbuf
+                    // Check if the Rx buf is full
+                    if (cc110_rxBufWriteIndex
+                            == ((cc110_rxBufReadIndex - 1 + CC110_TXRX_BUF_SIZE)
+                                    % CC110_TXRX_BUF_SIZE))
+                    {
+                        cc110_rxBufStatus = CC110_BUF_FULL;
+                    }
+                    else
+                    {
+                        // Read out all data from previous SPI xfer until the DMA buffer is empty or the rx buffer is full
+                        cc110_rxBufStatus = CC110_BUF_OK;
+                        cc110_rxBufWriteLock = CC110_BUF_WRITE_BUSY;
+                        while ((cc110_rxBufWriteIndex
+                                != ((cc110_rxBufReadIndex - 1 + CC110_TXRX_BUF_SIZE)
+                                        % CC110_TXRX_BUF_SIZE))
+                                && (dma_index < rx_bytes_avaiable_previous))
                         {
-                            cc110_dmaBufTx[dma_index] = cc110_txBuf[cc110_txBufReadIndex];
-                            cc110_txBufReadIndex = (cc110_txBufReadIndex + 1) % CC110_TXRX_BUF_SIZE;
+                            cc110_rxBuf[cc110_rxBufWriteIndex] = cc110_dmaBufRx[dma_index];
                             dma_index++;
+                            cc110_rxBufWriteIndex = (cc110_rxBufWriteIndex + 1)
+                                    % CC110_TXRX_BUF_SIZE;
                         }
-
-                        // Update buffer status if we emptied the whole buffer
-                        if (cc110_txBufReadIndex == cc110_txBufWriteIndex)
-                        {
-                            cc110_txBufStatus = CC110_BUF_EMPTY;
-                        }
-
-                        // Start SPI DMA
-                        // dma_index will indicate total number of bytes to transfer (including cmd byte)
-                        HAL_SPI_TransmitReceive_DMA(&hspi2, cc110_dmaBufTx, cc110_dmaBufRx, dma_index);
+                        cc110_rxBufWriteLock = CC110_BUF_WRITE_FREE;
                     }
-                    else
-                    {
-                        // Do nothing, buffer is empty and we can't write data to the CC110
-                    }
-                    break;
+                }
+                else
+                {
+                    // Set radio to RX state
+                    cc110_strobeCmd(CC110_SRX_ADDR);
+                    rx_data_ready = 1;       // Reset flag for data ready
+                }
 
-                case CC110_TXRX_RX:     // Receive mode
-                    // Get number of bytes available in CC110 RX FIFO
-                    rx_bytes_avaiable_previous = rx_bytes_avaiable;
-                    CC110_RXBYTES_DATA.data = cc110_burstReadRegister(CC110_RXBYTES_ADDR);
-                    rx_bytes_avaiable = CC110_RXBYTES_DATA.NUM_RXBYTES;
+                // Perform SPI DMA transfer for number of bytes available in the RX FIFO
+                // TODO: do this with DMA
+                //HAL_SPI_TransmitReceive_DMA(&hspi2, cc110_dmaBufTx, cc110_dmaBufRx, rx_bytes_avaiable + 1);
+                cc110_spi_xfer(cc110_dmaBufTx, cc110_dmaBufRx, rx_bytes_avaiable + 1);
+                break;
 
-                    if (rx_data_ready == 1)
-                    {
-                        // Copy command word into first byte of DMA buffer
-                        cc110_dmaBufTx[0] = CC110_BURST_READ | CC110_RXFIFO_ADDR;
-
-                        // Reset DMA index
-                        dma_index = 1;
-
-                        // Copy RX bytes from last transfer from the DMA buffer to the rx cbuf
-                        // Check if the Rx buf is full
-                        if (cc110_rxBufWriteIndex == ((cc110_rxBufReadIndex - 1 + CC110_TXRX_BUF_SIZE) % CC110_TXRX_BUF_SIZE))
-                        {
-                            cc110_rxBufStatus = CC110_BUF_FULL;
-                        }
-                        else
-                        {
-                            // Read out all data from previous SPI xfer until the DMA buffer is empty or the rx buffer is full
-                            cc110_rxBufStatus = CC110_BUF_OK;
-                            cc110_rxBufWriteLock = CC110_BUF_WRITE_BUSY;
-                            while ((cc110_rxBufWriteIndex != ((cc110_rxBufReadIndex - 1 + CC110_TXRX_BUF_SIZE) % CC110_TXRX_BUF_SIZE)) && (dma_index < rx_bytes_avaiable_previous))
-                            {
-                                cc110_rxBuf[cc110_rxBufWriteIndex] = cc110_dmaBufRx[dma_index];
-                                dma_index++;
-                                cc110_rxBufWriteIndex = (cc110_rxBufWriteIndex + 1) % CC110_TXRX_BUF_SIZE;
-                            }
-                            cc110_rxBufWriteLock = CC110_BUF_WRITE_FREE;
-                        }
-                    }
-                    else
-                    {
-                        rx_data_ready = 1;       // Reset flag for data ready
-                    }
-
-                    // Perform SPI DMA transfer for number of bytes available in the RX FIFO
-                    HAL_SPI_TransmitReceive_DMA(&hspi2, cc110_dmaBufTx, cc110_dmaBufRx, rx_bytes_avaiable + 1);
-                    break;
-
-                default:
-                    rx_data_ready = 0;   // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
-                    break;
-            }
+            default:
+                rx_data_ready = 0; // When not in Rx mode set the flag that a new SPI xfer has to happen to have valid data
+                break;
+        }
     }
 }
 
@@ -429,7 +470,8 @@ void cc110_writeTxBuf(uint8_t* txData, uint16_t len)
     uint16_t index = 0;
 
     // Check if the Tx buf is full
-    if (cc110_txBufWriteIndex == ((cc110_txBufReadIndex - 1 + CC110_TXRX_BUF_SIZE) % CC110_TXRX_BUF_SIZE))
+    if (cc110_txBufWriteIndex
+            == ((cc110_txBufReadIndex - 1 + CC110_TXRX_BUF_SIZE) % CC110_TXRX_BUF_SIZE))
     {
         cc110_txBufStatus = CC110_BUF_FULL;
         log_warn("Write attempted on CC110 txBuf when full");
@@ -439,7 +481,8 @@ void cc110_writeTxBuf(uint8_t* txData, uint16_t len)
         // Write data to tx buf
         cc110_txBufStatus = CC110_BUF_OK;
         cc110_txBufWriteLock = CC110_BUF_WRITE_BUSY;
-        while ((cc110_txBufWriteIndex != ((cc110_txBufReadIndex - 1 + CC110_TXRX_BUF_SIZE))) && (index < len))
+        while ((cc110_txBufWriteIndex != ((cc110_txBufReadIndex - 1 + CC110_TXRX_BUF_SIZE)))
+                && (index < len))
         {
             cc110_txBuf[cc110_txBufWriteIndex] = txData[index];
             index++;
@@ -487,7 +530,7 @@ static inline void cc110_spi_xfer(uint8_t* txData, uint8_t* rxData, uint16_t len
 static int8_t cc110_reset(void)
 {
     // TODO: Fix retval stuff & make timeouts shorter
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitTypeDef GPIO_InitStruct = { 0 };
     static const uint8_t timeoutMs = 10;
     static uint8_t timeMs = 0;
     int8_t retval = CC110_OK;
@@ -524,7 +567,8 @@ static int8_t cc110_reset(void)
 
     // Pull CSn Low and wait for MISO to go low
     HAL_GPIO_WritePin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin, GPIO_PIN_RESET);
-    while ((HAL_GPIO_ReadPin(SPI2_MISO_Port, SPI2_MISO_Pin) != GPIO_PIN_RESET) && (timeMs < timeoutMs))
+    while ((HAL_GPIO_ReadPin(SPI2_MISO_Port, SPI2_MISO_Pin) != GPIO_PIN_RESET)
+            && (timeMs < timeoutMs))
     {
         HAL_Delay(1);
         timeMs++;
@@ -552,7 +596,8 @@ static int8_t cc110_reset(void)
 
     if (timeMs >= timeoutMs)
     {
-        retval = CC110_FAIL;;
+        retval = CC110_FAIL;
+        ;
         log_warn("Timed out waiting for STATUS == 0x0F");
     }
 
@@ -563,8 +608,7 @@ static inline uint8_t cc110_readRegister(uint8_t addr)
 {
     uint8_t tmp = 0;
     uint8_t tx_buf[2] = {
-            CC110_BYTE_READ | addr,
-            tmp };
+    CC110_BYTE_READ | addr, tmp };
     uint8_t rx_buf[2] = { 0 };
 
     cc110_spi_xfer(tx_buf, rx_buf, 2);
@@ -576,8 +620,7 @@ static inline uint8_t cc110_burstReadRegister(uint8_t addr)
 {
     uint8_t tmp = 0;
     uint8_t tx_buf[2] = {
-            CC110_BURST_READ | addr,
-            tmp };
+    CC110_BURST_READ | addr, tmp };
     uint8_t rx_buf[2] = { 0 };
 
     cc110_spi_xfer(tx_buf, rx_buf, 2);
@@ -587,7 +630,7 @@ static inline uint8_t cc110_burstReadRegister(uint8_t addr)
 
 static inline void cc110_writeRegister(uint8_t addr, uint8_t data)
 {
-    uint8_t tx_buf[2] = {CC110_BYTE_WRITE | addr, data};
+    uint8_t tx_buf[2] = { CC110_BYTE_WRITE | addr, data };
     uint8_t rx_buf[2] = { 0 };
 
     cc110_spi_xfer(tx_buf, rx_buf, 2);

@@ -37,6 +37,9 @@ default.size.stdout \
 OBJDUMP_LIST += \
 DevBoardTestBasic2.list \
 
+OBJCOPY_HEX += \
+DevBoardTestBasic2.hex \
+
 OBJCOPY_BIN += \
 DevBoardTestBasic2.bin \
 
@@ -60,6 +63,11 @@ DevBoardTestBasic2.list: $(EXECUTABLES)
 	@echo 'Finished building: $@'
 	@echo ' '
 
+DevBoardTestBasic2.hex: $(EXECUTABLES)
+	arm-none-eabi-objcopy  -O ihex $(EXECUTABLES) "DevBoardTestBasic2.hex"
+	@echo 'Finished building: $@'
+	@echo ' '
+
 DevBoardTestBasic2.bin: $(EXECUTABLES)
 	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "DevBoardTestBasic2.bin"
 	@echo 'Finished building: $@'
@@ -70,7 +78,7 @@ clean:
 	-$(RM) *
 	-@echo ' '
 
-secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_BIN)
+secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_HEX) $(OBJCOPY_BIN)
 
 .PHONY: all clean dependents
 .SECONDARY:

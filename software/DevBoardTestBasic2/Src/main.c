@@ -99,8 +99,7 @@ int main(void)
   MX_SPI2_Init();
   MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
-  // Deinit TIM10 - this should only be init'd just before we need to do CC110 tx/rx
-  HAL_TIM_Base_MspDeInit(&htim10);
+  HAL_TIM_Base_MspDeInit(&htim10);  // Deinit TIM10 - this should only be init'd just before we need to do CC110 tx/rx
   setbuf(stdout, NULL);
   log_info("GPIO Initialized");
   log_info("TIM10 Initialized");

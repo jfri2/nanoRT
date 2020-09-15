@@ -38,7 +38,7 @@
 #define CC110_IOCFG0_ADDR       0x02    // GDO0 output pin config
 #define CC110_FIFOTHR_ADDR      0x03    // Tx & Rx FIFO threshold
 #define CC110_SYNC1_ADDR        0x04    // Sync Word high byte
-#define CC110_SYNC2_ADDR        0x05    // Sync Word low byte
+#define CC110_SYNC0_ADDR        0x05    // Sync Word low byte
 #define CC110_PKTLEN_ADDR       0x06    // Packet length
 #define CC110_PKTCTRL1_ADDR     0x07    // Packet automation control 1
 #define CC110_PKTCTRL0_ADDR     0x08    // Packet automation control 0
@@ -385,7 +385,7 @@ typedef union
     {
         uint8_t LSB :8;             // LSB of 16-bit sync word
     };
-} CC110_SYNC2_REG_t;
+} CC110_SYNC0_REG_t;
 
 typedef union
 {

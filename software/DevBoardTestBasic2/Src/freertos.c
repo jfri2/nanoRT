@@ -171,16 +171,8 @@ void StartRadioTask(void* argument)
     osDelay(2000);        // Allow other tasks to startup
     while (1)
     {
-//#define TRANSMITTER
-#define RECEIVER
-#ifdef TRANSMITTER
-        cc110_txTest();   // Perform test
-        osDelay(1000);
-#endif
-#ifdef RECEIVER
-        cc110_rxTest();
-        osDelay(100);  // Do nothing
-#endif
+        cc110_test();   // Perform test
+        osDelay(100);
     }
 }
 

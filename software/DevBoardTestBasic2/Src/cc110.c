@@ -34,7 +34,7 @@ static CC110_IOCFG1_REG_t CC110_IOCFG1_DATA;
 static CC110_IOCFG0_REG_t CC110_IOCFG0_DATA;
 static CC110_FIFOTHR_REG_t CC110_FIFOTHR_DATA;
 static CC110_SYNC1_REG_t CC110_SYNC1_DATA;
-static CC110_SYNC2_REG_t CC110_SYNC2_DATA;
+static CC110_SYNC0_REG_t CC110_SYNC0_DATA;
 static CC110_PKTLEN_REG_t CC110_PKTLEN_DATA;
 static CC110_PKTCTRL1_REG_t CC110_PKTCTRL1_DATA;
 static CC110_PKTCTRL0_REG_t CC110_PKTCTRL0_DATA;
@@ -103,6 +103,7 @@ static inline void cc110_burstWrite(uint8_t addr, uint8_t* data, uint8_t len);
 static inline void cc110_strobeCmd(uint8_t cmd);
 static void cc110_getStatus(void);
 static void cc110_getConfig(void);
+static void cc110_writeConfig(void);
 static void cc110_dumpRegisters(void);
 
 /* Public function definitions -----------------------------------------------*/
@@ -126,9 +127,10 @@ int8_t cc110_init(void)
         cc110_strobeCmd(CC110_SFRX_ADDR);
         cc110_strobeCmd(CC110_SFTX_ADDR);
 
-        // Grab latest status from status registers
+        // Grab initial status from status registers
         cc110_getStatus();
 
+        /*
         // From SmartRF Studio
         // Settings are as follows
         // Base Freq: 914.999908 MHz
@@ -149,7 +151,7 @@ int8_t cc110_init(void)
         // Packet len of 255 (changed later)
         // CRC autoflush disabled; append status enabled,
 //#define SMARTRF_SETTING_FIFOTHR         0x47    // ADC retention enabled; Close in RX 0; FIFO thr 32/33
-#define SMARTRF_SETTING_FIFOTHR         0xb00110111     // ADC retention disabled; Close in RX 18 dB; FIFO thr 32/33
+#define SMARTRF_SETTING_FIFOTHR         0b00110111     // ADC retention disabled; Close in RX 18 dB; FIFO thr 32/33
 #define SMARTRF_SETTING_PKTCTRL0        0x05    //
 #define SMARTRF_SETTING_FSCTRL1         0x06
 #define SMARTRF_SETTING_FREQ2           0x21
@@ -194,13 +196,23 @@ int8_t cc110_init(void)
         cc110_writeRegister(CC110_TEST2_ADDR, SMARTRF_SETTING_TEST2);
         cc110_writeRegister(CC110_TEST1_ADDR, SMARTRF_SETTING_TEST1);
         cc110_writeRegister(CC110_TEST0_ADDR, SMARTRF_SETTING_TEST0);
-        cc110_writeRegister(CC110_PATABLE_ADDR, POWER_m30DBM);
+        cc110_writeRegister(CC110_PATABLE_ADDR, POWER_m15DBM);
 
         cc110_writeRegister(CC110_PKTLEN_ADDR, 0x02);           // Packet length of 2 bytes
         cc110_writeRegister(CC110_PKTCTRL1_ADDR, 0b00000000);   // No addr checking, append status disable
         cc110_writeRegister(CC110_PKTCTRL0_ADDR, 0b00000000); // Set to fixed packet length mode, CRC disabled
         //cc110_writeRegister(CC110_MCSM1_ADDR, 0b00001110);      // Set always CCA, stay in Rx after rx packet, and stay in tx after sending packet
         cc110_writeRegister(CC110_MCSM1_ADDR, 0b00001100); // Set always CCA, stay in Rx after rx packet, and goto IDLE after sending packet
+
+        // For fun...
+        cc110_writeRegister(CC110_AGCCTRL2_ADDR, 0xC7);
+        cc110_writeRegister(CC110_AGCCTRL1_ADDR, 0x00);
+        cc110_writeRegister(CC110_AGCCTRL0_ADDR, 0xB2);
+        cc110_writeRegister(CC110_BSCFG_ADDR, 0x1C);
+        */
+
+
+        cc110_writeConfig();
 
         cc110_dumpRegisters();
         cc110_txRxStatus = CC110_TXRX_BUSY;
@@ -218,95 +230,84 @@ int8_t cc110_init(void)
     return (retval);
 }
 
-void cc110_txTest(void)
+void cc110_test(void)
 {
-    static uint32_t index;                // Keeps track of number of calls to this function
-    uint8_t msg[] = "Hello World n";
-#define RX_MSG_BYTES         10
-    static uint8_t rx_msg[RX_MSG_BYTES];
+    ///////////////////// Variables /////////////////////
+    // Common Vars
+    static uint8_t rx_tx = 0;   // 0 for rx, 1 for tx
 
-    if (cc110_connectedStatus == CC110_OK)
+    // Rx Vars
+#define RX_MSG_BYTES         10
+    uint8_t rx_msg[RX_MSG_BYTES] = {0};
+
+    // Tx Vars
+    // TX
+    static uint8_t tx_once = 0;
+    static uint8_t msg[] = "Hello World!";
+
+    ///////////////////// Function Definition /////////////////////
+    // Grab latest pushbutton state and set to rx/tx based on that
+    rx_tx = HAL_GPIO_ReadPin(KEY0_GPIO_Port, KEY0_Pin);
+
+    if (rx_tx != 0)
     {
-        // Turn LED on to indicate we're starting the loop
-        HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+        // Rx
+        // Turn off LED when in rx
+        HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+
+        // Set Rx State
+        cc110_txRxStatus = CC110_TXRX_RX;
 
         // Grab latest status
         cc110_getStatus();
 
-        // Tell console we're doing something
-        msg[13] = ('%c', index);
-        log_info("%d - Writing %s to tx cbuf and tx'ing", index, msg);
+        log_info("RSSI: %d dBm", cc110_rssiDbm);
+        log_info("State: %d", CC110_STATUS_DATA.STATE);
 
-        // Write a bit of dummy data to txBuf
-        cc110_writeTxBuf(msg, ustrlen(msg));
+        cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
+        log_info("MSG: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x ", rx_msg[0], rx_msg[1],
+                 rx_msg[2], rx_msg[3], rx_msg[4], rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8],
+                 rx_msg[9]);
+        log_info("MSG: %c%c%c%c%c%c%c%c%c%c", rx_msg[0], rx_msg[1], rx_msg[2], rx_msg[3], rx_msg[4],
+                 rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8], rx_msg[9]);
 
-        // Set state to tx
-        cc110_txRxStatus = CC110_TXRX_TX;
-
-        // Check current state
-        if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_TX)
-        {
-            log_info("CC110 in TX state");
-        }
-        else
-        {
-            log_info("CC110 in %x state", CC110_STATUS_DATA.STATE);
-        }
-
-        /*
-         // Switch to Rx mode
-         log_info("Switching to Rx Mode...");
-
-         // TODO: Make a function call around tx/rx that sets this state
-         cc110_txRxStatus = CC110_TXRX_RX;
-         cc110_strobeCmd(CC110_SRX_ADDR);
-
-         HAL_Delay(1);
-
-         // Check current state
-         if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_RX)
-         {
-         log_info("CC110 in RX state, RSSI: %d dBm", cc110_rssiDbm);
-         }
-         else
-         {
-         log_info("CC110 in %x state", CC110_STATUS_DATA.STATE);
-         }
-
-         // Print out last RX_MSG_BYTES from rx buffer
-         for (uint8_t i = 0; i<RX_MSG_BYTES; i++)
-         {
-         cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
-         log_info("RX'd: %d", rx_msg[i]);
-         }
-         */
-
-        index++;
-
-        // Turn off LED at end of function call
-        HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+        tx_once = 0;
     }
-}
+    else
+    {
+        // Tx
+        if ((cc110_connectedStatus == CC110_OK))
+        {
+            // Turn LED on to indicate we're in Tx
+            HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
 
-void cc110_rxTest(void)
-{
-#define RX_MSG_BYTES         10
-    static uint8_t rx_msg[RX_MSG_BYTES];
+            // Grab latest status
+            cc110_getStatus();
 
-    // Set Rx State
-    cc110_txRxStatus = CC110_TXRX_RX;
+            //if ((tx_once == 0))         // Only send one msg per button press
+            //{
+                // Tell console we're doing something
+                log_info("Writing %s to tx cbuf and tx'ing", msg);
 
-    // Grab latest status
-    cc110_getStatus();
+                // Write a bit of dummy data to txBuf
+                cc110_writeTxBuf(msg, ustrlen(msg));
+            //}
 
-    log_info("RSSI: %d dBm", cc110_rssiDbm);
+            // Set state to tx
+            cc110_txRxStatus = CC110_TXRX_TX;
 
-    cc110_readRxBuf(rx_msg, RX_MSG_BYTES);
-    log_info("MSG: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x ", rx_msg[0], rx_msg[1],
-             rx_msg[2], rx_msg[3], rx_msg[4], rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8],
-             rx_msg[9]);
-    log_info("MSG: %c%c%c%c%c%c%c%c%c%c", rx_msg[0], rx_msg[1], rx_msg[2], rx_msg[3], rx_msg[4],
-             rx_msg[5], rx_msg[6], rx_msg[7], rx_msg[8], rx_msg[9]);
+            // Check current state
+            if (CC110_STATUS_DATA.STATE == CC110_STATUS_BYTE_STATE_TX)
+            {
+                log_info("CC110 in TX state");
+            }
+            else
+            {
+                log_info("CC110 in %x state", CC110_STATUS_DATA.STATE);
+            }
+            tx_once = 1;
+        }
+    }
 }
 
 // Handles tx and rx FIFO operations.
@@ -411,6 +412,11 @@ void cc110_txrx(void)
                 CC110_RXBYTES_DATA.data = cc110_burstReadRegister(CC110_RXBYTES_ADDR);
                 rx_bytes_avaiable = CC110_RXBYTES_DATA.NUM_RXBYTES;
 
+                if (rx_bytes_avaiable > 0)
+                {
+                    asm("NOP");         // For breakpoint
+                }
+
                 if (rx_data_ready == 1)
                 {
                     // Copy command word into first byte of DMA buffer
@@ -435,7 +441,7 @@ void cc110_txrx(void)
                         while ((cc110_rxBufWriteIndex
                                 != ((cc110_rxBufReadIndex - 1 + CC110_TXRX_BUF_SIZE)
                                         % CC110_TXRX_BUF_SIZE))
-                                && (dma_index < rx_bytes_avaiable_previous))
+                                && (dma_index < rx_bytes_avaiable_previous + 1))
                         {
                             cc110_rxBuf[cc110_rxBufWriteIndex] = cc110_dmaBufRx[dma_index];
                             dma_index++;
@@ -508,9 +514,9 @@ void cc110_readRxBuf(uint8_t* rxData, uint16_t len)
         }
 
         // Update buffer status if we emptied the whole buffer
-        if (cc110_txBufReadIndex == cc110_txBufWriteIndex)
+        if (cc110_rxBufReadIndex == cc110_rxBufWriteIndex)
         {
-            cc110_txBufStatus = CC110_BUF_EMPTY;
+            cc110_rxBufStatus = CC110_BUF_EMPTY;
         }
     }
     else
@@ -683,7 +689,7 @@ static void cc110_dumpRegisters(void)
     log_info("CC110_IOCFG0_DATA: %02x", CC110_IOCFG0_DATA.data);
     log_info("CC110_FIFOTHR_DATA: %02x", CC110_FIFOTHR_DATA.data);
     log_info("CC110_SYNC1_DATA: %02x", CC110_SYNC1_DATA.data);
-    log_info("CC110_SYNC2_DATA: %02x", CC110_SYNC2_DATA.data);
+    log_info("CC110_SYNC0_DATA: %02x", CC110_SYNC0_DATA.data);
     log_info("CC110_PKTLEN_DATA: %02x", CC110_PKTLEN_DATA.data);
     log_info("CC110_PKTCTRL1_DATA: %02x", CC110_PKTCTRL1_DATA.data);
     log_info("CC110_PKTCTRL0_DATA: %02x", CC110_PKTCTRL0_DATA.data);
@@ -750,7 +756,7 @@ static void cc110_getConfig(void)
     CC110_IOCFG0_DATA.data = cc110_readRegister(CC110_IOCFG0_ADDR);
     CC110_FIFOTHR_DATA.data = cc110_readRegister(CC110_FIFOTHR_ADDR);
     CC110_SYNC1_DATA.data = cc110_readRegister(CC110_SYNC1_ADDR);
-    CC110_SYNC2_DATA.data = cc110_readRegister(CC110_SYNC2_ADDR);
+    CC110_SYNC0_DATA.data = cc110_readRegister(CC110_SYNC0_ADDR);
     CC110_PKTLEN_DATA.data = cc110_readRegister(CC110_PKTLEN_ADDR);
     CC110_PKTCTRL1_DATA.data = cc110_readRegister(CC110_PKTCTRL1_ADDR);
     CC110_PKTCTRL0_DATA.data = cc110_readRegister(CC110_PKTCTRL0_ADDR);
@@ -784,6 +790,178 @@ static void cc110_getConfig(void)
     CC110_TEST2_DATA.data = cc110_readRegister(CC110_TEST2_ADDR);
     CC110_TEST1_DATA.data = cc110_readRegister(CC110_TEST1_ADDR);
     CC110_TEST0_DATA.data = cc110_readRegister(CC110_TEST0_ADDR);
+}
+
+static void cc110_writeConfig(void)
+{
+#define SMARTRF_SETTING_IOCFG2          0x29
+#define SMARTRF_SETTING_IOCFG1          0x2E
+#define SMARTRF_SETTING_IOCFG0          0x06
+#define SMARTRF_SETTING_FIFOTHR         0x07
+#define SMARTRF_SETTING_SYNC1           0xD3
+#define SMARTRF_SETTING_SYNC0           0x91
+#define SMARTRF_SETTING_PKTLEN          0x05
+#define SMARTRF_SETTING_PKTCTRL1        0x04
+#define SMARTRF_SETTING_PKTCTRL0        0x04
+#define SMARTRF_SETTING_ADDR            0x00
+#define SMARTRF_SETTING_CHANNR          0x00
+#define SMARTRF_SETTING_FSCTRL1         0x08
+#define SMARTRF_SETTING_FSCTRL0         0x00
+#define SMARTRF_SETTING_FREQ2           0x21
+#define SMARTRF_SETTING_FREQ1           0xE3
+#define SMARTRF_SETTING_FREQ0           0x8E
+#define SMARTRF_SETTING_MDMCFG4         0x5B
+#define SMARTRF_SETTING_MDMCFG3         0xE5
+#define SMARTRF_SETTING_MDMCFG2         0x43
+#define SMARTRF_SETTING_MDMCFG1         0x22
+#define SMARTRF_SETTING_MDMCFG0         0xE5
+#define SMARTRF_SETTING_DEVIATN         0x46
+#define SMARTRF_SETTING_MCSM2           0x07
+#define SMARTRF_SETTING_MCSM1           0x30
+#define SMARTRF_SETTING_MCSM0           0x18
+#define SMARTRF_SETTING_FOCCFG          0x1D
+#define SMARTRF_SETTING_BSCFG           0x1C
+#define SMARTRF_SETTING_AGCCTRL2        0xC7
+#define SMARTRF_SETTING_AGCCTRL1        0x00
+#define SMARTRF_SETTING_AGCCTRL0        0xB2
+#define SMARTRF_SETTING_RESERVED_0X20   0xFB
+#define SMARTRF_SETTING_FREND1          0xB6
+#define SMARTRF_SETTING_FREND0          0x10
+#define SMARTRF_SETTING_FSCAL3          0xEA
+#define SMARTRF_SETTING_FSCAL2          0x2A
+#define SMARTRF_SETTING_FSCAL1          0x00
+#define SMARTRF_SETTING_FSCAL0          0x1F
+#define SMARTRF_SETTING_RESERVED_0X29   0x89
+#define SMARTRF_SETTING_RESERVED_0X2A   0x127
+#define SMARTRF_SETTING_RESERVED_0X2B   0x63
+
+    cc110_writeRegister(CC110_IOCFG2_ADDR, SMARTRF_SETTING_IOCFG2);
+    cc110_writeRegister(CC110_IOCFG1_ADDR, SMARTRF_SETTING_IOCFG1);
+    cc110_writeRegister(CC110_IOCFG0_ADDR, SMARTRF_SETTING_IOCFG0);
+    cc110_writeRegister(CC110_FIFOTHR_ADDR, SMARTRF_SETTING_FIFOTHR);
+    cc110_writeRegister(CC110_SYNC1_ADDR, SMARTRF_SETTING_SYNC1);
+    cc110_writeRegister(CC110_SYNC0_ADDR, SMARTRF_SETTING_SYNC0);
+    cc110_writeRegister(CC110_PKTLEN_ADDR, SMARTRF_SETTING_PKTLEN);
+    cc110_writeRegister(CC110_PKTCTRL1_ADDR, SMARTRF_SETTING_PKTCTRL1);
+    cc110_writeRegister(CC110_PKTCTRL0_ADDR, SMARTRF_SETTING_PKTCTRL0);
+    cc110_writeRegister(CC110_ADDR_ADDR, SMARTRF_SETTING_ADDR);
+    cc110_writeRegister(CC110_CHANNR_ADDR, SMARTRF_SETTING_CHANNR);
+    cc110_writeRegister(CC110_FSCTRL1_ADDR, SMARTRF_SETTING_FSCTRL1);
+    cc110_writeRegister(CC110_FSCTRL0_ADDR, SMARTRF_SETTING_FSCTRL0);
+    cc110_writeRegister(CC110_FREQ2_ADDR, SMARTRF_SETTING_FREQ2);
+    cc110_writeRegister(CC110_FREQ1_ADDR, SMARTRF_SETTING_FREQ1);
+    cc110_writeRegister(CC110_FREQ0_ADDR, SMARTRF_SETTING_FREQ0);
+    cc110_writeRegister(CC110_MDMCFG4_ADDR, SMARTRF_SETTING_MDMCFG4);
+    cc110_writeRegister(CC110_MDMCFG3_ADDR, SMARTRF_SETTING_MDMCFG3);
+    cc110_writeRegister(CC110_MDMCFG2_ADDR, SMARTRF_SETTING_MDMCFG2);
+    cc110_writeRegister(CC110_MDMCFG1_ADDR, SMARTRF_SETTING_MDMCFG1);
+    cc110_writeRegister(CC110_MDMCFG0_ADDR, SMARTRF_SETTING_MDMCFG0);
+    cc110_writeRegister(CC110_MCSM2_ADDR, SMARTRF_SETTING_MCSM2);
+    cc110_writeRegister(CC110_MCSM1_ADDR, SMARTRF_SETTING_MCSM1);
+    cc110_writeRegister(CC110_MCSM0_ADDR, SMARTRF_SETTING_MCSM0);
+    cc110_writeRegister(CC110_FOCCFG_ADDR, SMARTRF_SETTING_FOCCFG);
+    cc110_writeRegister(CC110_BSCFG_ADDR, SMARTRF_SETTING_BSCFG);
+    cc110_writeRegister(CC110_AGCCTRL2_ADDR, SMARTRF_SETTING_AGCCTRL2);
+    cc110_writeRegister(CC110_AGCCTRL1_ADDR, SMARTRF_SETTING_AGCCTRL1);
+    cc110_writeRegister(CC110_AGCCTRL0_ADDR, SMARTRF_SETTING_AGCCTRL0);
+    cc110_writeRegister(0x20, SMARTRF_SETTING_RESERVED_0X20);
+    cc110_writeRegister(CC110_FREND1_ADDR, SMARTRF_SETTING_FREND1);
+    cc110_writeRegister(CC110_FREND1_ADDR, SMARTRF_SETTING_FREND0);
+    cc110_writeRegister(CC110_FSCAL3_ADDR, SMARTRF_SETTING_FSCAL3);
+    cc110_writeRegister(CC110_FSCAL2_ADDR, SMARTRF_SETTING_FSCAL2);
+    cc110_writeRegister(CC110_FSCAL1_ADDR, SMARTRF_SETTING_FSCAL1);
+    cc110_writeRegister(CC110_FSCAL0_ADDR, SMARTRF_SETTING_FSCAL0);
+    cc110_writeRegister(0x29, SMARTRF_SETTING_RESERVED_0X29);
+    //cc110_writeRegister(0x2A, SMARTRF_SETTING_RESERVED_0X2A);
+    cc110_writeRegister(0x2B, SMARTRF_SETTING_RESERVED_0X2B);
+
+
+        CC110_PKTCTRL1_DATA.data = 0b00000000;      // Disable: CRC autoflush, append status, and no address checking
+        CC110_MCSM1_DATA.data = 0b00001101;         // Clear channel indication always, stay in rx after finishing reception, goto fstxon after sending packet
+        cc110_writeRegister(CC110_PKTCTRL1_ADDR, CC110_PKTCTRL1_DATA.data);
+        cc110_writeRegister(CC110_MCSM1_ADDR, CC110_MCSM1_DATA.data);
+        cc110_writeRegister(CC110_PATABLE_ADDR, POWER_m30DBM);
+
+
+    /*
+    //CC110_IOCFG2_DATA.data = 0b00000000;      // Use default settings for GDO config
+    CC110_IOCFG1_DATA.data = CC110_IOCFG1_DATA.data | 0b10000000;       // Set LOW drive strength and default settings
+    //CC110_IOCFG0_DATA.data = 0b00000000;      // Use default settings for GDO config
+    CC110_FIFOTHR_DATA.data = 0b00110000;       // Default FIFO threshold (unused), CLOSE_IN_RX set to 18 dB
+    //CC110_SYNC1_DATA.data = 0b00000000;       // Use default settings for SYNC_WORD
+    //CC110_SYNC2_DATA.data = 0b00000000;       // Use default settings for SYNC_WORD
+    CC110_PKTLEN_DATA.data = 2;                 // Packet length of 2 bytes for fixed packet length mode
+    CC110_PKTCTRL1_DATA.data = 0b00000000;      // Disable: CRC autoflush, append status, and no address checking
+    CC110_PKTCTRL0_DATA.data = 0b00000000;      // Normal packet format mode using FIFOs for Rx & Tx, CRC calculation disabled, fixed packet length mode
+    CC110_ADDR_DATA.data = 0b00000001;          // Address of 1
+    CC110_CHANNR_DATA.data = 0b00000000;        // Channel 0
+    CC110_FSCTRL1_DATA.data = 0x06;             // From SmartRf Studio
+    //CC110_FSCTRL0_DATA.data = 0b00000000;     // Use default settings
+    CC110_FREQ2_DATA.data = 0x21;               // From SmartRf Studio
+    CC110_FREQ1_DATA.data = 0xE3;               // From SmartRf Studio
+    CC110_FREQ0_DATA.data = 0x8E;               // From SmartRf Studio
+    CC110_MDMCFG4_DATA.data = 0xF5;             // From SmartRf Studio
+    CC110_MDMCFG3_DATA.data = 0x75;             // From SmartRf Studio
+    CC110_MDMCFG2_DATA.data = 0b00000001;       // Sensitivity optimized, 2-FSK format, Manchester encoding disabled, 15/16 sync words detected
+    CC110_MDMCFG1_DATA.data = 0b00100101;       // 4 byte pre-amble
+    CC110_MDMCFG0_DATA.data = 0xE5;             // From SmartRf Studio
+    CC110_DEVIATN_DATA.data = 0x14;             // From SmartRf Studio
+    //CC110_MCSM2_DATA.data = 0b00000000;       // Use default settings
+    CC110_MCSM1_DATA.data = 0b00001110;         // Clear channel indication always, stay in rx after finishing reception, stay in tx after sending packet
+    CC110_MCSM0_DATA.data = 0b00101100;         // Autocal when going from RX or TX back to IDLE, max power on timeout for xtal
+    CC110_FOCCFG_DATA.data = 0x16;              // From SmartRf Studio
+    //CC110_BSCFG_DATA.data = 0b00000000;       // Use default settings
+    //CC110_AGCCTRL2_DATA.data = 0b00000000;    // Use default settings
+    //CC110_AGCCTRL1_DATA.data = 0b00000000;    // Use default settings
+    //CC110_AGCCTRL0_DATA.data = 0b00000000;    // Use default settings
+    //CC110_FREND1_DATA.data = 0b00000000;      // Use default settings
+    //CC110_FREND0_DATA.data = 0b00000000;      // Use default settings
+    CC110_FSCAL3_DATA.data = 0xE9;              // From SmartRf Studio
+    CC110_FSCAL2_DATA.data = 0x2A;              // From SmartRf Studio
+    CC110_FSCAL1_DATA.data = 0x00;              // From SmartRf Studio
+    CC110_FSCAL0_DATA.data = 0x1F;              // From SmartRf Studio
+
+    cc110_writeRegister(CC110_IOCFG2_ADDR, CC110_IOCFG2_DATA.data);
+    cc110_writeRegister(CC110_IOCFG1_ADDR, CC110_IOCFG1_DATA.data);
+    cc110_writeRegister(CC110_IOCFG0_ADDR, CC110_IOCFG0_DATA.data);
+    cc110_writeRegister(CC110_FIFOTHR_ADDR, CC110_FIFOTHR_DATA.data);
+    cc110_writeRegister(CC110_SYNC1_ADDR, CC110_SYNC1_DATA.data);
+    cc110_writeRegister(CC110_SYNC2_ADDR, CC110_SYNC2_DATA.data);
+    cc110_writeRegister(CC110_PKTLEN_ADDR, CC110_PKTLEN_DATA.data);
+    cc110_writeRegister(CC110_PKTCTRL1_ADDR, CC110_PKTCTRL1_DATA.data);
+    cc110_writeRegister(CC110_PKTCTRL0_ADDR, CC110_PKTCTRL0_DATA.data);
+    cc110_writeRegister(CC110_ADDR_ADDR, CC110_ADDR_DATA.data);
+    cc110_writeRegister(CC110_CHANNR_ADDR, CC110_CHANNR_DATA.data);
+    cc110_writeRegister(CC110_FSCTRL1_ADDR, CC110_FSCTRL1_DATA.data);
+    cc110_writeRegister(CC110_FSCTRL0_ADDR, CC110_FSCTRL0_DATA.data);
+    cc110_writeRegister(CC110_FREQ2_ADDR, CC110_FREQ2_DATA.data);
+    cc110_writeRegister(CC110_FREQ1_ADDR, CC110_FREQ1_DATA.data);
+    cc110_writeRegister(CC110_FREQ0_ADDR, CC110_FREQ0_DATA.data);
+    cc110_writeRegister(CC110_MDMCFG4_ADDR, CC110_MDMCFG4_DATA.data);
+    cc110_writeRegister(CC110_MDMCFG3_ADDR, CC110_MDMCFG3_DATA.data);
+    cc110_writeRegister(CC110_MDMCFG2_ADDR, CC110_MDMCFG2_DATA.data);
+    cc110_writeRegister(CC110_MDMCFG1_ADDR, CC110_MDMCFG1_DATA.data);
+    cc110_writeRegister(CC110_MDMCFG0_ADDR, CC110_MDMCFG0_DATA.data);
+    cc110_writeRegister(CC110_DEVIATN_ADDR, CC110_DEVIATN_DATA.data);
+    cc110_writeRegister(CC110_MCSM2_ADDR, CC110_MCSM2_DATA.data);
+    cc110_writeRegister(CC110_MCSM1_ADDR, CC110_MCSM1_DATA.data);
+    cc110_writeRegister(CC110_MCSM0_ADDR, CC110_MCSM0_DATA.data);
+    cc110_writeRegister(CC110_FOCCFG_ADDR, CC110_FOCCFG_DATA.data);
+    cc110_writeRegister(CC110_BSCFG_ADDR, CC110_BSCFG_DATA.data);
+    cc110_writeRegister(CC110_AGCCTRL2_ADDR, CC110_AGCCTRL2_DATA.data);
+    cc110_writeRegister(CC110_AGCCTRL1_ADDR, CC110_AGCCTRL1_DATA.data);
+    cc110_writeRegister(CC110_AGCCTRL0_ADDR, CC110_AGCCTRL0_DATA.data);
+    cc110_writeRegister(CC110_FREND1_ADDR, CC110_FREND1_DATA.data);
+    cc110_writeRegister(CC110_FREND0_ADDR, CC110_FREND0_DATA.data);
+    cc110_writeRegister(CC110_FSCAL3_ADDR, CC110_FSCAL3_DATA.data);
+    cc110_writeRegister(CC110_FSCAL2_ADDR, CC110_FSCAL2_DATA.data);
+    cc110_writeRegister(CC110_FSCAL1_ADDR, CC110_FSCAL1_DATA.data);
+    cc110_writeRegister(CC110_FSCAL0_ADDR, CC110_FSCAL0_DATA.data);
+    cc110_writeRegister(CC110_TEST2_ADDR, CC110_TEST2_DATA.data);
+    cc110_writeRegister(CC110_TEST1_ADDR, CC110_TEST1_DATA.data);
+    cc110_writeRegister(CC110_TEST0_ADDR, CC110_TEST0_DATA.data);
+    cc110_writeRegister(CC110_PATABLE_ADDR, POWER_m15DBM);
+    */
 }
 
 /************************ (C) COPYRIGHT John Fritz *****END OF FILE****/
